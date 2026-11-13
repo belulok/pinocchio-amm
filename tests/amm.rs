@@ -275,18 +275,37 @@ fn first_deposit_locks_minimum_liquidity() {
 #[test]
 fn later_deposit_is_proportional_and_takes_only_what_is_needed() {
     let (mut env, _) = Env::seeded(1_000 * ONE, 3_000 * ONE);
-    let bob = env.user(100 * ONE, 1_000 * ONE);
-    env.add(&bob, 100 * ONE, 1_000 * ONE, 0).unwrap();
-    let taken_b = 1_000 * ONE - env.bal(&bob.b);
-    assert_eq!(env.bal(&bob.a), 0);
-    // Supply is sqrt(1000·3000) rounded down, so the ratio-exact amount is within 1 unit of 300.
-    assert!(taken_b.abs_diff(300 * ONE) <= 1, "only the 1:3 ratio amount of B is taken, got {taken_b}");
-    assert_eq!(env.reserves(), (1_100 * ONE, 3_000 * ONE + taken_b));
+    let (ra, rb) = env.reserves();
+    let supply = (env.lp_supply() + MINIMUM_LIQUIDITY) as u128; // effective supply incl. locked LP
+    let (offer_a, offer_b) = (100 * ONE, 1_000 * ONE);
+
+    let bob = env.user(offer_a, offer_b);
+    env.add(&bob, offer_a, offer_b, 0).unwrap();
+    let lp = env.bal(&bob.lp) as u128;
+    let paid_a = (offer_a - env.bal(&bob.a)) as u128;
+    let paid_b = (offer_b - env.bal(&bob.b)) as u128;
+
+    // Independent model: LP for the scarcer side (A here), rounded down; each amount the
+    // ceiling of the LP's exact value.
+    let (ra, rb) = (ra as u128, rb as u128);
+    let expected_lp = (offer_a as u128 * supply / ra).min(offer_b as u128 * supply / rb);
+    assert_eq!(lp, expected_lp);
+    assert_eq!(paid_a, (lp * ra).div_ceil(supply));
+    assert_eq!(paid_b, (lp * rb).div_ceil(supply));
+
+    // Fairness, per token: pays at least what the LP is worth (pool never loses) and
+    // overpays by less than one base unit (depositor never overcharged).
+    for (paid, r) in [(paid_a, ra), (paid_b, rb)] {
+        assert!(paid * supply >= lp * r, "pool shortchanged");
+        assert!((paid - 1) * supply < lp * r, "depositor overcharged");
+    }
+    // Never more B than the 1:3 ratio of the A paid; the rest of the offer stays with Bob.
+    assert!(paid_b <= 3 * paid_a, "charged more than the pool ratio");
+    assert_eq!(env.reserves(), (1_000 * ONE + paid_a as u64, 3_000 * ONE + paid_b as u64));
 
     // Withdrawing straight away returns no more than was deposited.
-    let lp = env.bal(&bob.lp);
-    env.remove(&bob, lp, 0, 0).unwrap();
-    assert!(env.bal(&bob.a) <= 100 * ONE && env.bal(&bob.b) <= 1_000 * ONE);
+    env.remove(&bob, lp as u64, 0, 0).unwrap();
+    assert!(env.bal(&bob.a) <= offer_a && env.bal(&bob.b) <= offer_b);
 }
 
 #[test]
