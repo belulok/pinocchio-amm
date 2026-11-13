@@ -1,0 +1,42 @@
+[package]
+name = "pinocchio-amm"
+version = "0.1.0"
+description = "Constant-product AMM on Solana, written with Pinocchio (no Anchor)"
+edition = "2021"
+rust-version = "1.84"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+pinocchio = "=0.10.2"
+pinocchio-token = "=0.5.0"
+pinocchio-system = "=0.5.0"
+
+[dev-dependencies]
+litesvm = "0.7.1"
+litesvm-token = "0.7.1"
+solana-keypair = "2.2"
+solana-signer = "2.2"
+solana-transaction = "2.2"
+solana-message = "2.4"
+solana-instruction = "2.3"
+solana-transaction-error = "2.2"
+solana-pubkey = "2.4"
+spl-token = "8.0"
+solana-account = "2.2"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+# Host builds (tests) need the off-chain PDA implementation; on-chain uses the syscall.
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-address = { version = "2", features = ["curve25519"] }
